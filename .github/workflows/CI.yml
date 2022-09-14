@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+        - main
+  pull_request:
+    branches: 
+      - main
+    types: [closed]
+    
+env:
+  machine: ${{ secrets.machine }} 
+  KUBECONFIG: /home/crest/.kube/config
+
+jobs:
+  build:
+    if:  ${{ github.event.pull_request.merged }} || contains(github.event.head_commit.message, 'BUILD_CONTAINER_IMAGE')
+    runs-on: self-hosted
+
+    steps:
+
+    - name: Print Event type
+      shell: bash
+      run: |
+        echo Branch: ${{ github.ref }}, Event: ${{github.event_name}}
+        
+    - uses: actions/checkout@v3
+    
+    - name: Docker Setup QEMU
+      uses: docker/setup-qemu-action@v2.0.0      
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Login to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v3
+      with:
+        push: true
+        tags: mishar1029/guest-book:${{ github.run_number }}
+          
+    - name: Build the Docker image
+      run: echo $(git log --format=%B -n 1 ${{github.event.after}})
+      
+    - name: deploying manifest file on k8s cluster 
+      run: | 
+        sudo sed -i "s/guest-book:tag/guest-book:${{ github.run_number }}/g" kube.yaml
+        sudo kubectl apply -f kube.yaml
+        sleep 30
